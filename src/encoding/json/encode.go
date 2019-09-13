@@ -15,6 +15,7 @@ import (
 	"encoding"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"math"
 	"reflect"
 	"sort"
@@ -159,6 +160,22 @@ func Marshal(v interface{}) ([]byte, error) {
 	e := newEncodeState()
 
 	err := e.marshal(v, encOpts{escapeHTML: true})
+	if err != nil {
+		return nil, err
+	}
+	buf := append([]byte(nil), e.Bytes()...)
+
+	encodeStatePool.Put(e)
+
+	return buf, nil
+}
+
+// MarshalWithEscape is like Marshal but escape ', ", <, > and &
+// to HTML character code in strings.
+func MarshalWithEscape(v interface{}) ([]byte, error) {
+	e := newEncodeState()
+
+	err := e.marshal(v, encOpts{escapeHTML: true, escapeToHTMLChars: true})
 	if err != nil {
 		return nil, err
 	}
@@ -339,8 +356,10 @@ func (e *encodeState) reflectValue(v reflect.Value, opts encOpts) {
 type encOpts struct {
 	// quoted causes primitive fields to be encoded inside JSON strings.
 	quoted bool
-	// escapeHTML causes '<', '>', and '&' to be escaped in JSON strings.
+	// escapeHTML causes '<', '>', and '&' to be escaped to unicode characters in JSON strings.
 	escapeHTML bool
+	// escapeToHTMLChars causes ', ", <, >, and & to be escaped to HTML character code in JSON strings.
+	escapeToHTMLChars bool
 }
 
 type encoderFunc func(e *encodeState, v reflect.Value, opts encOpts)
@@ -603,14 +622,18 @@ func stringEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 		e.WriteString(numStr)
 		return
 	}
+	vString := v.String()
+	if opts.escapeToHTMLChars {
+		vString = html.EscapeString(vString)
+	}
 	if opts.quoted {
 		b := make([]byte, 0, v.Len()+2)
 		b = append(b, '"')
-		b = append(b, []byte(v.String())...)
+		b = append(b, []byte(vString)...)
 		b = append(b, '"')
 		e.stringBytes(b, opts.escapeHTML)
 	} else {
-		e.string(v.String(), opts.escapeHTML)
+		e.string(vString, opts.escapeHTML)
 	}
 }
 
